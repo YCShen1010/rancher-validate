@@ -34,84 +34,156 @@ The component names were taken from the provided ownership screenshots. Only ent
 
 ## 3. How the Validation Was Performed
 
-### 3.1 Rancher UI path
-
-1. Open Rancher and select the `local` cluster.
-2. Change the namespace selector at the top of the page to **All Namespaces**.
-3. Use the following Rancher pages for visual inspection:
-
-| Validation target | Rancher navigation |
-|---|---|
-| Nodes | `Cluster -> Nodes` |
-| Deployments and Pods | `Workloads -> Deployments` and `Workloads -> Pods` |
-| Services | `Service Discovery -> Services` |
-| Events | `More Resources -> Core -> Events` |
-| Argo CD Applications | `More Resources -> argoproj.io -> Applications` |
-| ExternalSecret resources | `More Resources -> external-secrets.io -> ExternalSecrets` |
-| SecretStore resources | `More Resources -> external-secrets.io -> SecretStores` or `ClusterSecretStores` |
-| ManagedClusterSet | `More Resources`, then search for `ManagedClusterSet` |
-
-The Rancher Kubectl Shell is opened using the `>_` icon in the upper-right corner. Commands were entered only after the shell showed `Connected`.
-
-### 3.2 Validation layers
-
-The checks were performed at several layers:
-
-1. **Cluster baseline:** Rancher cluster state, node readiness, Kubernetes version, and CNI availability.
-2. **Installation evidence:** existence of the expected Argo CD Applications, controllers, Deployments, StatefulSets, DaemonSets, and custom resources.
-3. **GitOps reconciliation:** Argo CD `sync` and `health` conditions.
-4. **Runtime health:** desired versus available replicas, Pod phase, container readiness, restart counts, and recent events.
-5. **Functional resource health:** ExternalSecret and SecretStore readiness, ManagedClusterSet existence, and networking DaemonSet coverage.
-6. **Installer history:** Tekton TaskRun results for the cluster-networking installation step.
-
-## 4. Cluster Baseline Results
-
-### 4.1 Rancher summary
-
-Observed Rancher state:
-
-- Cluster state: `Active`
-- Distribution: RKE2
-- Kubernetes version: `v1.35.6+rke2r1`
-- Architecture: `amd64`
-- Capacity shown by Rancher: 96 CPU cores and 374 GiB memory
-
-### 4.2 Node readiness
-
-Command:
+### 3.1 
+Application:
+```bash
+kubectl get applications.argoproj.io -A \
+  -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,REV:.status.sync.revision \
+  --no-headers |
+awk '$2 ~ /eso|external|trust|managed-cluster|upgrade-discovery|cluster-networking|app-of-apps|argocd|quay|clair/ {print}'
+```
+```text
+argocd   acm-eso-local                 Synced   Healthy   0.3.0
+argocd   acm-ocp-truststore-local      Synced   Healthy   0.3.0
+argocd   cluster-networking            Synced   Healthy   0.3.0
+argocd   eso-secret-store-local        Synced   Healthy   0.3.0
+argocd   managed-cluster-set-local     Synced   Healthy   0.3.0
+argocd   upgrade-discovery-local       Synced   Healthy   0.3.0
+```
+### 3.2
+Deployment, StatefulSet
 
 ```bash
-kubectl get nodes
+kubectl get deploy,sts -n argocd
+```
+```text
+NAME                                                       READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/argocd-cluster-applicationset-controller   1/1     1            1           14d
+deployment.apps/argocd-cluster-redis-ha-haproxy            3/3     3            3           15d
+deployment.apps/argocd-cluster-repo-server                 2/2     2            2           15d
+deployment.apps/argocd-cluster-server                      2/2     2            2           15d
+
+NAME                                                     READY   AGE
+statefulset.apps/argocd-cluster-application-controller   1/1     15d
+statefulset.apps/argocd-cluster-redis-ha-server          3/3     15d
+```
+## 4 ESO / External Secrets
+### 4.1 ESO controller
+```bash
+> kubectl get deploy -n external-secrets
+```
+```text
+NAME                               READY   UP-TO-DATE   AVAILABLE   AGE
+external-secrets                   1/1     1            1           15d
+external-secrets-cert-controller   1/1     1            1           15d
+external-secrets-webhook           1/1     1            1           15d
+```
+```bash
+> kubectl get pods -n external-secrets
+```
+```text
+NAME                                                READY   STATUS    RESTARTS   AGE
+external-secrets-cert-controller-7cb699c7f5-q8d97   1/1     Running   0          13d
+external-secrets-db5cc8dd7-kwmrs                    1/1     Running   0          13d
+external-secrets-webhook-776f79b5bf-pww4q           1/1     Running   0          13d
+```
+### 4.2 check ExternalSecret
+```bash
+kubectl get externalsecrets.external-secrets.io -A
+```
+```text
+NAMESPACE                 NAME                                    STORETYPE            STORE                                 REFRESH INTERVAL   STATUS              READY   LAST SYNC
+acm-service-broker        acm-service-broker-iam-secret-es        ClusterSecretStore   sovcloud-vault-cluster-secret-store   5m                 SecretSynced        True    3m49s
+acm-service-broker        common-service-broker-iam-secret-es     ClusterSecretStore   sovcloud-vault-cluster-secret-store   5m                 SecretSynced        True    3m52s
+acm-service-broker        pull-secret-sovereign-core-read-es      ClusterSecretStore   sovcloud-vault-cluster-secret-store   5m                 SecretSynced        True    3m42s
+aiiaas                    aiiaas-service-broker-iam-secret-es     ClusterSecretStore   sovcloud-vault-cluster-secret-store   5m0s               SecretSynced        True    32s
+aiiaas                    common-service-broker-iam-secret-es     ClusterSecretStore   sovcloud-vault-cluster-secret-store   5m0s               SecretSynced        True    31s
+aiiaas                    iam-api-key-es                          ClusterSecretStore   sovcloud-vault-cluster-secret-store   5m0s               SecretSynced        True    30s
+aiiaas                    quay-oauth-token-es                     ClusterSecretStore   sovcloud-vault-cluster-secret-store   5m0s               SecretSyncedError   False   
+common-service-broker     csb-config                              ClusterSecretStore   sovcloud-vault-cluster-secret-store   24h                SecretSynced        True    3h56m
+concert-hub               concert-apikey-hub                      ClusterSecretStore   sovcloud-vault-cluster-secret-store   5m                 SecretSynced        True    92s
+default                   ivia-apps-oidcp-tenant-secrets          ClusterSecretStore   sovcloud-vault-cluster-secret-store   1h0m0s             SecretSynced        True    36m
+default                   ivia-msp-oidcp-tenant-secrets           ClusterSecretStore   sovcloud-vault-cluster-secret-store   1h0m0s             SecretSynced        True    37m
+netbox                    netbox-config-es                        ClusterSecretStore   sovcloud-vault-cluster-secret-store   5m                 SecretSynced        True    2m
+netbox                    netbox-pepper-es                        ClusterSecretStore   sovcloud-vault-cluster-secret-store   5m                 SecretSynced        True    91s
+netbox                    netbox-redis-es                         ClusterSecretStore   sovcloud-vault-cluster-secret-store   5m                 SecretSynced        True    110s
+netbox                    netbox-superuser-es                     ClusterSecretStore   sovcloud-vault-cluster-secret-store   5m                 SecretSynced        True    102s
+openshift-pipelines       concert-install-admin-creds             ClusterSecretStore   sovcloud-vault-cluster-secret-store   1m                 SecretSynced        True    30s
+postgres-service-broker   common-service-broker-iam-secret-es     ClusterSecretStore   sovcloud-vault-cluster-secret-store   5m0s               SecretSynced        True    4m22s
+postgres-service-broker   postgres-service-broker-iam-secret-es   ClusterSecretStore   sovcloud-vault-cluster-secret-store   5m0s               SecretSynced        True    70s
+sov-core-networking       sov-core-networking-api-secret-es       ClusterSecretStore   sovcloud-vault-cluster-secret-store   1h                 SecretSynced        True    38m
+sovereign-ivia-apps       ivia-apps-oidcp-tenant-secrets          ClusterSecretStore   sovcloud-vault-cluster-secret-store   1h0m0s             SecretSynced        True    36m
+sovereign-ivia-msp        ivia-msp-oidcp-tenant-secrets           ClusterSecretStore   sovcloud-vault-cluster-secret-store   1h0m0s             SecretSynced        True    56m
+sovereign-ui              accountui-secret-es                     ClusterSecretStore   sovcloud-vault-cluster-secret-store   10m                SecretSynced        True    5m27s
+sovereign-ui              mspui-secret-es                         ClusterSecretStore   sovcloud-vault-cluster-secret-store   10m                SecretSynced        True    5m17s
+sovereign-ui              sovereign-ca-cert-es                    ClusterSecretStore   sovcloud-vault-cluster-secret-store   10m                SecretSynced        True    29s
+sovereign-ui              xpm-secret-es                           ClusterSecretStore   sovcloud-vault-cluster-secret-store   10m                SecretSynced        True    5m21s
+vault-aas                 es-vault-root-ca-secret                 ClusterSecretStore   sovcloud-vault-cluster-secret-store   10s                SecretSynced        True    2s
+```
+## 5. Quay and Clair
+### 5.1 deployment and pods
+```bash
+> kubectl get deploy -n quay
+```
+```text
+NAME                  READY   UP-TO-DATE   AVAILABLE   AGE
+quay-clair-app        2/2     2            2           20d
+quay-clair-postgres   1/1     1            1           20d
+quay-quay-app         1/1     1            1           20d
+quay-quay-database    1/1     1            1           20d
+quay-quay-redis       1/1     1            1           20d
 ```
 
-Observed result:
+```bash
+> kubectl get pods -n quay -o wide
+```
+```text
+NAME                                  READY   STATUS    RESTARTS        AGE   IP            NODE                                                            NOMINATED NODE   READINESS GATES
+quay-clair-app-5f7898bc59-pg6hx       1/1     Running   5 (6d14h ago)   14d   10.42.3.9     rancher-sles16-5-oss-installer-alpha-worker4.dev.fyre.ibm.com   <none>           <none>
+quay-clair-app-5f7898bc59-qjsfr       1/1     Running   0               14d   10.42.0.213   rancher-sles16-5-oss-installer-alpha-worker1.dev.fyre.ibm.com   <none>           <none>
+quay-clair-postgres-b69587bb7-kps64   1/1     Running   0               14d   10.42.0.212   rancher-sles16-5-oss-installer-alpha-worker1.dev.fyre.ibm.com   <none>           <none>
+quay-quay-app-874887756-tgzqt         1/1     Running   160 (40m ago)   13d   10.42.1.4     rancher-sles16-5-oss-installer-alpha-worker2.dev.fyre.ibm.com   <none>           <none>
+quay-quay-database-5cff9b9df5-2cfbv   1/1     Running   0               14d   10.42.0.211   rancher-sles16-5-oss-installer-alpha-worker1.dev.fyre.ibm.com   <none>           <none>
+quay-quay-redis-86754c9749-2vgvp      1/1     Running   0               14d   10.42.0.225   rancher-sles16-5-oss-installer-alpha-worker1.dev.fyre.ibm.com   <none>           <none>
+> kubectl get pods -n quay-operator-system
+NAME                                           READY   STATUS    RESTARTS      AGE
+quay-operator-quay-operator-84685b9c9f-7mlxf   1/1     Running   3 (42h ago)   14d
+```
 
-- Seven nodes were present.
-- All seven nodes reported `Ready`.
-- One node, `rancher-sles16-5-oss-installer-alpha-worker5.dev.fyre.ibm.com`, reported `Ready,SchedulingDisabled`.
-- All nodes were on `v1.35.6+rke2r1`.
-
-Interpretation:
-
-The node layer was healthy. `SchedulingDisabled` means worker5 was cordoned. A cordoned node can remain healthy but will not accept newly scheduled workloads; the platform owner should confirm that this is intentional maintenance state.
-
-### 4.3 Cluster networking
-
-Command:
-
+## 6. Cluster Networking
 ```bash
 kubectl get daemonset -A --no-headers | grep -Ei 'canal|calico|cilium|flannel'
+kube-system      rke2-canal                                 7     7     7     7     7     kubernetes.io/os=linux   23d
 ```
 
-Observed result:
-
-```text
-kube-system   rke2-canal   7   7   7   7   ...   23d
+## 7. Pipeline
+```bash
+kubectl get taskrun -n openshift-pipelines \
+>   --sort-by=.metadata.creationTimestamp \
+>   --no-headers |
+> grep -Ei 'deploy-cluster-networking|app-of-apps-deployment' |
+> tail -n 20
+sovcloud-installer-run-5j6lz-deploy-cluster-networking            False     StepFailed               2d20h   2d20h
+sovcloud-installer-run-w2x9r-deploy-cluster-networking            True      Succeeded                2d19h   2d19h
+sanity-vault-f4p42-deploy-cluster-networking                      False     FailureIgnored           2d19h   2d19h
+sovcloud-installer-run-w2x9r-r-z9xjn-deploy-cluster-networking    True      Succeeded                2d19h   2d19h
+sovcloud-installer-run-w2x9r-r-528bx-deploy-cluster-networking    True      Succeeded                2d19h   2d19h
+sovcloud-installer-run-vmv78-deploy-cluster-networking            True      Succeeded                2d19h   2d19h
+sovcloud-installer-run-xsvvh-deploy-cluster-networking            True      Succeeded                2d18h   2d18h
+sovcloud-installer-run-rw6jt-deploy-cluster-networking            True      Succeeded                2d17h   2d17h
+sovcloud-installer-run-jwg7h-deploy-cluster-networking            False     StepFailed               2d17h   2d17h
+sovcloud-installer-run-jwg7h-r-5zzjd-deploy-cluster-networking    True      Succeeded                2d17h   2d17h
+sovcloud-installer-run-76zfb-deploy-cluster-networking            True      Succeeded                2d16h   2d16h
+sovcloud-installer-run-cr6rk-deploy-cluster-networking            True      Succeeded                2d16h   2d16h
+sovcloud-installer-run-cjrgv-deploy-cluster-networking            True      Succeeded                2d16h   2d16h
+sovcloud-installer-run-m6ct4-deploy-cluster-networking            True      Succeeded                2d15h   2d15h
+sovcloud-installer-run-cjrgv-r-4dd9s-deploy-cluster-networking    True      Succeeded                2d15h   2d15h
+sovcloud-installer-run-428jf-deploy-cluster-networking            True      Succeeded                2d15h   2d15h
+sovcloud-installer-run-cjrgv-r-skxr6-deploy-cluster-networking    True      Succeeded                2d11h   2d11h
+sovcloud-installer-run-cjrgv-r-jx5dw-deploy-cluster-networking    True      Succeeded                2d11h   2d11h
 ```
 
-Interpretation:
 
-RKE2 Canal was scheduled and Ready on all seven nodes. Combined with the Ready node state, this is strong evidence that the current cluster-networking deployment is operational.
 
 ## 5. Component Results
 
