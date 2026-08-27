@@ -252,7 +252,7 @@ Observed result:
 - Multiple later runs reported `True Succeeded`.
 - No currently retained TaskRun with the exact literal name `app-of-apps-deployment` was returned by the filter.
 
-## 5. ManagedClusterSet
+## 8. ManagedClusterSet
 ```
 > kubectl get managedclusterset
 NAME                    EMPTY   AGE
@@ -266,7 +266,7 @@ The application-level object observed in Argo CD was managed-cluster-set-local, 
 
 
 
-## 5. Component Results
+## 9. Component Results
 
 | Component | Purpose | Installation evidence | Runtime/functional evidence | Result |
 |---|---|---|---|---|
